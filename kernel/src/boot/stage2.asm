@@ -4,6 +4,14 @@ section .text
 
 global _start
 
+extern __bss_start
+extern __bss_end
+
+extern start
+
+global vbe_screen
+global entry
+
 _start:
 
     cli                                                     ; Clear interupts to avoid mistake input
@@ -15,7 +23,7 @@ _start:
     mov es, ax
     mov ss, ax
 
-    
+
     mov sp, spStackInitial                                  ; Defined in stage2vars.inc
     mov bp, sp
 
@@ -85,7 +93,24 @@ _start:
     add edi, eax                            ; edi = framebuffer + offset
     mov dword [edi], 0x00FF0000             ; Draw a red pixel (0x00RRGGBB)
 
-    
+    ; Go to C
+
+    ; Clear BSS
+    mov edi, __bss_start
+    mov ecx, __bss_end 
+    sub ecx, edi
+    mov al, 0
+    cld 
+    rep stosb
+
+    ; Expect boot drive in dl, send as arg to cstart 
+    xor edx, edx
+    mov dl, [g_BootDrive]
+    push edx
+    call start 
+
+    cli
+    hlt
 
 
 

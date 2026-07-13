@@ -80,4 +80,4 @@ Depending on the model, the BIOS may close automatically and launch the installe
  
  ### Project license: GPL v3.0 (see the LICENSE file for details).
 
-Translated with DeepL.com (free version)
+)

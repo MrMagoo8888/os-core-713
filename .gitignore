@@ -219,3 +219,6 @@ __marimo__/
 
 #debug log Qemu
 qemu_debug.log
+
+# Toolchain
+toolchain/

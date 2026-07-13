@@ -3,7 +3,6 @@ BUILD_DIR ?= ../../../build
 
 # Tools
 ASM?=nasm
-CC?=gcc
 LD?=ld
 
 .PHONY: all clean
@@ -27,10 +26,10 @@ $(BUILD_DIR)/boot5.bin: boot5.asm
 
 $(BUILD_DIR)/stage2.bin: stage2.asm linker.ld
 	@mkdir -p $(BUILD_DIR)
-	# Assemble using GCC handles the .intel_syntax directive
+	# Assemble stage 2 bootloader
 	$(ASM) stage2.asm -f elf -o $(BUILD_DIR)/stage2.o
-	# Link into a flat binary at 0x0500
-	$(LD) -m elf_i386 -T linker.ld -o $(BUILD_DIR)/stage2.bin $(BUILD_DIR)/stage2.o
+	# Link stage 2 entry together with the compiled C objects from the loader folders
+	$(LD) -m elf_i386 -T linker.ld -o $@ $(BUILD_DIR)/stage2.o $(BUILD_DIR)/loader/asm/*.obj $(BUILD_DIR)/loader/c/*.obj
 
 clean:
-	rm -rf $(BUILD_DIR)
+	rm -f $(BUILD_DIR)/boot5.bin $(BUILD_DIR)/stage2.bin $(BUILD_DIR)/stage2.o $(BUILD_DIR)/main_floppy.img
