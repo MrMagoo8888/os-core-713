@@ -3,7 +3,13 @@ OUTPUT_FORMAT("binary")
 phys = 0x00100000;
 
 SECTIONS
-{
+{   
+    . = 0x00008000;
+    .low_mem            : { __low_mem_start = .;    *(.low_mem) }
+    __low_mem_end = .;
+
+
+
     . = phys;
 
     .entry              : { __entry_start = .;      *(.entry)   }

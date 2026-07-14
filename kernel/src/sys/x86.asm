@@ -1,67 +1,61 @@
+section .low_mem
+
+; MACRO: Enter 16-bit Real Mode
 %macro x86_EnterRealMode 0
     [bits 32]
-    jmp word 18h:.pmode16         ; 1 - jump to 16-bit protected mode segment
+    jmp word 18h:.pmode16         ; Jump to 16-bit Protected Mode descriptor
 
 .pmode16:
     [bits 16]
-    ; 2 - disable protected mode bit in cr0
     mov eax, cr0
-    and al, ~1
+    and al, ~1                    ; Clear PE (Protection Enable) bit
     mov cr0, eax
 
-    ; 3 - jump to real mode
-    jmp word 00h:.rmode
+    ; Far jump to clear prefetch queue and set Real Mode CS (0x0000)
+    ; Assumes section is linked at 0x8000 or absolute lower memory
+    jmp 0x0000:.rmode
 
 .rmode:
-    ; 4 - setup segments
-    mov ax, 0
+    xor ax, ax
     mov ds, ax
+    mov es, ax
     mov ss, ax
-
-    ; 5 - enable interrupts
-    sti
-
+    sti                           ; Enable real-mode interrupts
 %endmacro
 
 
+; Enter 32-bit Protected Mode
 %macro x86_EnterProtectedMode 0
-    cli
+    [bits 16]
+    cli                           ; Disable real-mode interrupts
 
-    ; 4 - set protection enable flag in CR0
     mov eax, cr0
-    or al, 1
+    or al, 1                      ; Set PE bit
     mov cr0, eax
 
-    ; 5 - far jump into protected mode
-    jmp dword 08h:.pmode
-
+    jmp dword 08h:.pmode          ; Far jump into 32-bit PM (CS = 0x08)
 
 .pmode:
-    ; we are now in protected mode!
     [bits 32]
-    
-    ; 6 - setup segment registers
-    mov ax, 0x10
+    mov ax, 0x10                  ; Update data segments (DS/SS = 0x10)
     mov ds, ax
     mov ss, ax
-
 %endmacro
 
-; Convert linear address to segment:offset address
-; Args:
-;    1 - linear address
-;    2 - (out) target segment (e.g. es)
-;    3 - target 32-bit register to use (e.g. eax)
-;    4 - target lower 16-bit half of #3 (e.g. ax)
 
+; Convert Linear Address to Segment:Offset
+; The ruelz
+;    1 - linear address input register/memory (e.g., [ebp + 28])
+;    2 - target segment register output (e.g., es)
+;    3 - target 32-bit register for calculation (e.g., eax)
+;    4 - target lower 16-bit half of #3 (e.g., ax)
 %macro LinearToSegOffset 4
-
-    mov %3, %1      ; linear address to eax
-    shr %3, 4
-    mov %2, %4
-    mov %3, %1      ; linear address to eax
-    and %3, 0xf
-
+    mov %3, %1                    ; Load full 32-bit linear address
+    shr %3, 4                     ; Shift right by 4 bits to get the segment base
+    mov %2, %4                    ; Safely move the 16-bit segment value into the Segment Register (e.g., es)
+    
+    mov %3, %1                    ; Reload the original 32-bit linear address
+    and %3, 0x000F                ; Mask all but the last 4 bits. %4 (ax) now holds the exact 16-bit offset (0-15)
 %endmacro
 
 
@@ -85,77 +79,62 @@ x86_inb:
 global x86_Disk_GetDriveParams
 x86_Disk_GetDriveParams:
     [bits 32]
-
-    ; make new call frame
-    push ebp             ; save old call frame
-    mov ebp, esp         ; initialize new call frame
+    push ebp             
+    mov ebp, esp         
 
     x86_EnterRealMode
-
     [bits 16]
 
-    ; save regs
     push es
     push bx
     push esi
     push di
 
-    ; call int13h
-    mov dl, [bp + 8]    ; dl - disk drive
+    ; Using ebp explicitly overrides 16-bit restriction safely
+    mov dl, [ebp + 8]    
     mov ah, 08h
-    mov di, 0           ; es:di - 0000:0000
+    xor di, di           
     mov es, di
     stc
     int 13h
 
-    ; out params
     mov eax, 1
-    sbb eax, 0
+    sbb eax, 0            ; Return 1 on success, 0 on failure
 
-    ; drive type from bl
-    LinearToSegOffset [bp + 12], es, esi, si
+    ; Store drive type
+    LinearToSegOffset [ebp + 12], es, esi, si
     mov [es:si], bl
 
-    ; cylinders
-    mov bl, ch          ; cylinders - lower bits in ch
-    mov bh, cl          ; cylinders - upper bits in cl (6-7)
+    ; Calculate and store cylinders
+    mov bl, ch          
+    mov bh, cl          
     shr bh, 6
     inc bx
-
-    LinearToSegOffset [bp + 16], es, esi, si
+    LinearToSegOffset [ebp + 16], es, esi, si
     mov [es:si], bx
 
-    ; sectors
-    xor ch, ch          ; sectors - lower 5 bits in cl
+    ; Calculate and store sectors
+    xor ch, ch          
     and cl, 3Fh
-    
-    LinearToSegOffset [bp + 20], es, esi, si
+    LinearToSegOffset [ebp + 20], es, esi, si
     mov [es:si], cx
 
-    ; heads
-    mov cl, dh          ; heads - dh
+    ; Calculate and store heads
+    mov cl, dh          
     inc cx
-
-    LinearToSegOffset [bp + 24], es, esi, si
+    LinearToSegOffset [ebp + 24], es, esi, si
     mov [es:si], cx
 
-    ; restore regs
     pop di
     pop esi
     pop bx
     pop es
 
-    ; return
-
     push eax
-
     x86_EnterProtectedMode
-
     [bits 32]
-
     pop eax
 
-    ; restore old call frame
     mov esp, ebp
     pop ebp
     ret
@@ -164,29 +143,25 @@ x86_Disk_GetDriveParams:
 global x86_Disk_Reset
 x86_Disk_Reset:
     [bits 32]
-
-    ; make new call frame
-    push ebp             ; save old call frame
-    mov ebp, esp          ; initialize new call frame
-
+    push ebp             
+    mov ebp, esp          
 
     x86_EnterRealMode
+    [bits 16]
 
     mov ah, 0
-    mov dl, [bp + 8]    ; dl - drive
+    mov dl, [ebp + 8]    
     stc
     int 13h
 
     mov eax, 1
-    sbb eax, 0           ; 1 on success, 0 on fail   
+    sbb eax, 0              
 
     push eax
-
     x86_EnterProtectedMode
-
+    [bits 32]
     pop eax
 
-    ; restore old call frame
     mov esp, ebp
     pop ebp
     ret
@@ -194,57 +169,47 @@ x86_Disk_Reset:
 
 global x86_Disk_Read
 x86_Disk_Read:
-
-    ; make new call frame
-    push ebp             ; save old call frame
-    mov ebp, esp          ; initialize new call frame
+    [bits 32]
+    push ebp             
+    mov ebp, esp          
 
     x86_EnterRealMode
+    [bits 16]
 
-    ; save modified regs
     push ebx
     push es
 
-    ; setup args
-    mov dl, [bp + 8]    ; dl - drive
+    mov dl, [ebp + 8]      ; Drive ID
 
-    mov ch, [bp + 12]    ; ch - cylinder (lower 8 bits)
-    mov cl, [bp + 13]    ; cl - cylinder to bits 6-7
+    mov ch, [ebp + 12]     ; Cylinder low bits
+    mov cl, [ebp + 13]     ; Cylinder high bits
     shl cl, 6
     
-    mov al, [bp + 16]    ; cl - sector to bits 0-5
+    mov al, [ebp + 16]     ; Sector number
     and al, 3Fh
     or cl, al
 
-    mov dh, [bp + 20]   ; dh - head
+    mov dh, [ebp + 20]     ; Head number
+    mov al, [ebp + 24]     ; Sector count
 
-    mov al, [bp + 24]   ; al - count
+    ; Convert C destination pointer to Real Mode Seg:Offset
+    LinearToSegOffset [ebp + 28], es, ebx, bx
 
-    LinearToSegOffset [bp + 28], es, ebx, bx
-
-    ; call int13h
     mov ah, 02h
     stc
     int 13h
 
-    ; set return value
     mov eax, 1
-    sbb eax, 0           ; 1 on success, 0 on fail   
+    sbb eax, 0             
 
-    ; restore regs
     pop es
     pop ebx
 
     push eax
-
     x86_EnterProtectedMode
-
+    [bits 32]
     pop eax
 
-    ; restore old call frame
     mov esp, ebp
     pop ebp
     ret
-
-; CODE BORROWED FROM MM8-OS
-; TO DO: REFORMAT
